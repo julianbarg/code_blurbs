@@ -1,0 +1,79 @@
+---
+title: "Zoom Analytics"
+author: "Julian Barg"
+date: "1/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+```{r read}
+raw <- read_file(".data/GMT20220117-163257_Recording.transcript.vtt")
+glimpse(raw)
+```
+
+```{r preprocess}
+
+less_raw <- raw %>% str_replace_all("\r\r\n\r\r\n", "/") %>%
+  str_replace_all("\r\r\n", ";") %>%
+  str_replace_all("/", "\n") %>%
+  str_remove("^.*\n") # Remove empty first line
+
+glimpse(less_raw)
+```
+
+```{r parse}
+transcript <- read_delim(file = less_raw, 
+                         delim = ";",
+                         col_names = c("n", "time", "content"))
+glimpse(transcript)
+```
+
+```{r tidy}
+transcript_clean <- transcript %>%
+  separate(content, c("contributer", "content"), sep = ": ") %>%
+  separate(time, c("start", "stop"), sep = " --> ") %>%
+  drop_na()
+
+glimpse(transcript_clean)
+```
+
+```{r get_time}
+data <- transcript_clean %>%
+  mutate(start = strptime(start, "%H:%M:%S"),
+         stop = strptime(stop, "%H:%M:%S")) %>%
+  mutate(duration = as.numeric(difftime(stop, start)))
+
+glimpse(data)
+```
+
+```{r stats}
+results <- tibble(student = unique(data$contributer))
+results$contributions <- 0
+
+for (i in 2:nrow(data)){
+  if (data$contributer[i] != data$contributer[i-1]){
+    student <- data[i,]$contributer
+    id <- results$student == student
+    results[id, ]$contributions <- results[id, ]$contributions + 1
+  }
+}
+
+results <- data %>%
+  group_by(contributer) %>%
+  summarize(duration = sum(duration)) %>%
+  right_join(results, by = c("contributer" = "student"))
+
+glimpse(results)
+```
+
+```{r output}
+# data <- subset(data, select = -c(start, stop))
+output <- list("Results" = results, 
+               "Data" = subset(data, select = -c(start, stop)))
+openxlsx::write.xlsx(output, file= "~/Documents/temp.xlsx")
+```
